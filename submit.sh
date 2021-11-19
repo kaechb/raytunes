@@ -1,9 +1,9 @@
 #!/bin/bash
-#SBATCH --partition=allgpu
-#SBATCH --constraint='V100'
+#SBATCH --partition=allgpu                  #choose the partition on which to run
+#SBATCH --constraint='V100'                 #choose constraint for gpus -> important otherwise pytorch is not compatible
 #SBATCH --time=00:30:00                           # Maximum time requested
-#SBATCH --nodes=10                                # Number of nodes
-#SBATCH --chdir=/home/kaechben/slurm/output        # directory must already exist!
+#SBATCH --nodes=2                                # Number of nodes, note that these are the different maxwell machines!
+#SBATCH --chdir=/home/kaechben/slurm/output        # directory must already exist!, here all of the 
 #SBATCH --job-name=hostname
 #SBATCH --output=%j.out               # File to which STDOUT will be written
 #SBATCH --error=%j.err                # File to which STDERR will be written
@@ -12,9 +12,7 @@
 unset LD_PRELOAD
 source /etc/profile.d/modules.sh
 module purge
-
 module load maxwell gcc/9.3
-
 nodes=$(scontrol show hostnames "$SLURM_JOB_NODELIST")
 nodes_array=($nodes)
 head_node=${nodes_array[0]}
@@ -59,4 +57,4 @@ for ((i = 1; i <= worker_num; i++)); do
 done
 
 
-python -u /home/kaechben/nf_scan.py "$SLURM_CPUS_PER_TASK"
+python -u ~/raytunes/sample_train.py "$SLURM_CPUS_PER_TASK"
