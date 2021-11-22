@@ -2,16 +2,19 @@
 #SBATCH --partition=allgpu
 #SBATCH --constraint='V100'
 #SBATCH --time=78:00:00                           # Maximum time requested
-#SBATCH --nodes=1                               # Number of nodes
+#SBATCH --nodes=1                               # Number of nodes - Note that this is the amount of max machines to use
 #SBATCH --chdir=/home/kaechben/slurm/output        # directory must already exist!
 #SBATCH --job-name=hostname
 #SBATCH --output=%j.out               # File to which STDOUT will be written
 #SBATCH --error=%j.err                # File to which STDERR will be written
 
+###these lines I just took from the ray documentation, it also works without them somehow
 unset LD_PRELOAD
 source /etc/profile.d/modules.sh
 module purge
+#############
 
+####this sets up the ray head and nodes
 nodes=$(scontrol show hostnames "$SLURM_JOB_NODELIST")
 nodes_array=($nodes)
 head_node=${nodes_array[0]}
@@ -30,7 +33,7 @@ fi
 echo "IPV6 address detected. We split the IPV4 address as $head_node_ip"
 fi
 
-  
+
 port=6379
 ip_head=$head_node_ip:$port
 export ip_head

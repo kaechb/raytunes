@@ -1,19 +1,14 @@
 "Shamlessely adapted from https://docs.ray.io/en/latest/tune/examples/mnist_pytorch.html"
-import ray
+
 from ray import tune,init
-from ray.tune.schedulers import AsyncHyperBandScheduler
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.autograd import Variable
-from torchvision import datasets, transforms
 import os
-import argparse
-from filelock import FileLock
-
 import numpy as np
-import ctypes
+
 class Net(torch.nn.Module):
     def __init__(self, n_feature, n_hidden, n_output):
         super(Net, self).__init__()
@@ -51,19 +46,20 @@ def train(config):
 
 if __name__ == "__main__":
     
-    # for early stopping
-    sched = AsyncHyperBandScheduler()
-    # this connects to the workers spawned by the submit script
+
+    #set the parameters you want to optimize as a dictionary of possible values,
+    #note that this is the simplest choice and that there are many builtin function
+    #that are a bit more sophisticated
     config={"lr": tune.sample_from(lambda _: 10**(-np.random.randint(1,4 ))),
             "hidden": tune.sample_from(lambda _: np.random.randint(1,10 )),
             "steps": tune.sample_from(lambda _: np.random.randint(5,10 ))}
+      # this connects to the workers spawned by the submit script
     init("auto")
     analysis = tune.run(
         train,
         metric="loss",
         mode="min",
         name="exp",
-        scheduler=sched,
         num_samples=6,
         resources_per_trial={
             "cpu": 2,
