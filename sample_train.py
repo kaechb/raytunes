@@ -1,134 +1,74 @@
 "Shamlessely adapted from https://docs.ray.io/en/latest/tune/examples/mnist_pytorch.html"
-import os
-import argparse
-from filelock import FileLock
+import ray
+from ray import tune,init
+from ray.tune.schedulers import AsyncHyperBandScheduler
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.autograd import Variable
 from torchvision import datasets, transforms
+import os
+import argparse
+from filelock import FileLock
 
-import ray
-from ray import tune,init
-from ray.tune.schedulers import AsyncHyperBandScheduler
+import numpy as np
 import ctypes
-libgcc_s = ctypes.CDLL("libgcc_s.so.1")
-# Change these values if you want the training to run quicker or slower.
-EPOCH_SIZE = 512
-TEST_SIZE = 256
-
-
-class ConvNet(nn.Module):
-    def __init__(self):
-        super(ConvNet, self).__init__()
-        self.conv1 = nn.Conv2d(1, 3, kernel_size=3)
-        self.fc = nn.Linear(192, 10)
+class Net(torch.nn.Module):
+    def __init__(self, n_feature, n_hidden, n_output):
+        super(Net, self).__init__()
+        self.hidden = torch.nn.Linear(n_feature, n_hidden)   # hidden layer
+        self.predict = torch.nn.Linear(n_hidden, n_output)   # output layer
 
     def forward(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), 3))
-        x = x.view(-1, 192)
-        x = self.fc(x)
-        return F.log_softmax(x, dim=1)
+        x = F.relu(self.hidden(x))      # activation function for hidden layer
+        x = self.predict(x)             # linear output
+        return x
 
-def train(model, optimizer, train_loader, device=None):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.train()
-    for batch_idx, (data, target) in enumerate(train_loader):
-        if batch_idx * len(data) > EPOCH_SIZE:
-            return
-        data, target = data.to(device), target.to(device)
+
+def train(config):
+
+    x = torch.unsqueeze(torch.linspace(-1, 1, 100), dim=1)  # x data (tensor), shape=(100, 1)
+    y = x.pow(2) + 0.2*torch.rand(x.size())  
+    x,y=Variable(x),Variable(y)
+    net=Net(1,config["hidden"],1)
+    optimizer = torch.optim.Adam(net.parameters(), lr=config["lr"])
+    loss_func = torch.nn.MSELoss()
+    for i in range(config["steps"]):
         optimizer.zero_grad()
-        output = model(data)
-        loss = F.nll_loss(output, target)
+        yhat=net(x)
+        loss=loss_func(y,yhat).mean()
         loss.backward()
         optimizer.step()
 
-
-def test(model, data_loader, device=None):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.eval()
-    correct = 0
-    total = 0
-    with torch.no_grad():
-        for batch_idx, (data, target) in enumerate(data_loader):
-            if batch_idx * len(data) > TEST_SIZE:
-                break
-            data, target = data.to(device), target.to(device)
-            outputs = model(data)
-            _, predicted = torch.max(outputs.data, 1)
-            total += target.size(0)
-            correct += (predicted == target).sum().item()
-
-    return correct / total
+        tune.report(loss=loss.item())
+    
 
 
-def get_data_loaders():
-    mnist_transforms = transforms.Compose(
-        [transforms.ToTensor(),
-         transforms.Normalize((0.1307, ), (0.3081, ))])
-
-    # We add FileLock here because multiple workers will want to
-    # download data, and this may cause overwrites since
-    # DataLoader is not threadsafe.
-    with FileLock(os.path.expanduser("~/raytunes/data.lock")):
-        train_loader = torch.utils.data.DataLoader(
-            datasets.MNIST(
-                "~/data",
-                train=True,
-                download=True,
-                transform=mnist_transforms),
-            batch_size=64,
-            shuffle=True)
-        test_loader = torch.utils.data.DataLoader(
-            datasets.MNIST(
-                "~/data",
-                train=False,
-                download=True,
-                transform=mnist_transforms),
-            batch_size=64,
-            shuffle=True)
-    return train_loader, test_loader
-
-
-def train_mnist(config):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    train_loader, test_loader = get_data_loaders()
-    model = ConvNet().to(device)
-
-    optimizer = optim.SGD(
-        model.parameters(), lr=config["lr"], momentum=config["momentum"])
-
-    while True:
-        train(model, optimizer, train_loader, device)
-        acc = test(model, test_loader, device)
-        # Set this to run Tune.
-        tune.report(mean_accuracy=acc)
-
+    
+        
+        
 
 if __name__ == "__main__":
     
     # for early stopping
-    #sched = AsyncHyperBandScheduler()
+    sched = AsyncHyperBandScheduler()
     # this connects to the workers spawned by the submit script
+    config={"lr": tune.sample_from(lambda _: 10**(-np.random.randint(1,4 ))),
+            "hidden": tune.sample_from(lambda _: np.random.randint(1,10 )),
+            "steps": tune.sample_from(lambda _: np.random.randint(5,10 ))}
     init("auto")
     analysis = tune.run(
-        train_mnist,
-        metric="mean_accuracy",
-        mode="max",
+        train,
+        metric="loss",
+        mode="min",
         name="exp",
-        #scheduler=sched,
-        stop={
-            "mean_accuracy": 0.98,
-            "training_iteration": 100
-        },
+        scheduler=sched,
+        num_samples=6,
         resources_per_trial={
             "cpu": 2,
             "gpu": 1  # set this for GPUs
         },
-        num_samples=1,
-        config={
-            "lr": tune.loguniform(1e-4, 1e-2),
-            "momentum": tune.uniform(0.1, 0.9),
-        })
-
+        
+        config=config)
     print("Best config is:", analysis.best_config)
