@@ -16,6 +16,6 @@ I had a bit of trouble setting up ray, so maybe this helps if you run into troub
     conda activate ray_env
     pip install ray[tune]
 
-sbatch submit.sh
+    sbatch submit.sh
 
 This should work out of the box
